@@ -10,6 +10,7 @@ before_install:
 
 script:
   - env | sort
+  - OUT="$(gofmt -s -d .)" bash -c '[ "$OUT" == "" ] || (echo "$OUT" && exit 1)'
   - go test -v -cover ./...
   - go test -v -run=Benchmark -bench=. -benchmem ./...
   - ~/gopath/bin/golint .
