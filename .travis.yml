@@ -1,2 +1,15 @@
 language: go
-go: 1.2
+
+go:
+  - 1.2
+  - tip
+
+before_install:
+  - go get -v code.google.com/p/go.tools/cmd/cover
+  - go get -v github.com/golang/lint/golint
+
+script:
+  - env | sort
+  - go test -v -cover ./...
+  - go test -v -run=Benchmark -bench=. -benchmem ./...
+  - ~/gopath/bin/golint .
