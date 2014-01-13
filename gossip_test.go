@@ -39,7 +39,7 @@ func (p pipePeer) Write(message interface{}) error {
 	return nil
 }
 
-func (p pipePeer) Close() {
+func (p pipePeer) Close() error {
 	p.closedMu.Lock()
 	defer p.closedMu.Unlock()
 	select {
@@ -47,6 +47,7 @@ func (p pipePeer) Close() {
 	default:
 		close(p.closed)
 	}
+	return nil
 }
 
 func makePeerPipe(aName, bName string) (Peer, Peer) {

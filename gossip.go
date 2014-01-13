@@ -22,8 +22,8 @@ type Peer interface {
 	// Return io.EOF if the connection was cleanly closed.
 	Write(interface{}) error
 	// Close the connection to this peer.  Subsequent calls are no-ops.
-	// After this is called, all outstanding and future calls to Read and Write must immediately return an error.
-	Close()
+	// After this is called, all blocked calls to Read and Write will unblock.
+	Close() error
 }
 
 // Gossiper is a single local node in the gossip protocol.
@@ -156,7 +156,9 @@ func (g *gossiper) RemovePeer(handle PeerHandle) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if peer, ok := g.peers[handle]; ok {
-		peer.Close()
+		if err := peer.Close(); err != nil {
+			log.Printf("error closing peer %s: %s", peer.Name(), err)
+		}
 		delete(g.peers, handle)
 		if c, ok := g.peerClosedChans[handle]; ok {
 			c <- true
@@ -179,7 +181,9 @@ func (g *gossiper) Close() {
 	c := make(chan bool)
 	for handle, peer := range g.peers {
 		g.peerClosedChans[handle] = c
-		peer.Close()
+		if err := peer.Close(); err != nil {
+			log.Printf("error closing peer %s: %s", peer.Name(), err)
+		}
 	}
 	g.mu.Unlock()
 
