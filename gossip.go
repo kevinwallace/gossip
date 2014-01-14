@@ -32,6 +32,21 @@ type Gossiper interface {
 	Close()
 }
 
+// PeerWatcher is an interface implemented by clients who want to know when to the peer set changes.
+// Callbacks are called while holding a gossiper-internal lock, and must not call back into Gossiper.
+type PeerWatcher interface {
+	// PeerAdded is called when a peer is added.
+	PeerAdded(handle PeerHandle, peer Peer)
+	// PeerRemoved is called when a peer is removed.
+	PeerRemoved(handle PeerHandle, peer Peer)
+}
+
+// Config is used to configure a Gossiper.
+type Config struct {
+	// PeerWatcher receives updates to the current peer set, if non-nil.
+	PeerWatcher PeerWatcher
+}
+
 // PeerHandle is an opaque handle that references a peer we are gossiping with.
 type PeerHandle uint
 
@@ -54,6 +69,7 @@ type outgoingMessage struct {
 type gossiper struct {
 	incomingMessages chan incomingMessage
 	outgoingMessages chan outgoingMessage
+	peerWatcher      PeerWatcher
 
 	mu             sync.Mutex
 	nextPeerHandle PeerHandle
@@ -68,10 +84,11 @@ type gossiper struct {
 // Each incoming message is passed to updateFunc.
 // If it returns true, the message is propagated to our other neighbors.  Otherwise, it is dropped.
 // Calls to updateFunc are synchronized.
-func NewGossiper(updateFunc func(interface{}) bool) Gossiper {
+func NewGossiper(updateFunc func(interface{}) bool, config Config) Gossiper {
 	g := &gossiper{
 		incomingMessages: make(chan incomingMessage, 1000),
 		outgoingMessages: make(chan outgoingMessage, 1000),
+		peerWatcher:      config.PeerWatcher,
 		nextPeerHandle:   peerHandleStart,
 		peers:            make(map[PeerHandle]Peer),
 		peerClosedChans:  make(map[PeerHandle]chan<- bool),
@@ -94,6 +111,10 @@ func (g *gossiper) AddPeer(peer Peer) (handle PeerHandle, err error) {
 	handle = g.nextPeerHandle
 	g.nextPeerHandle++
 	g.peers[handle] = peer
+
+	if g.peerWatcher != nil {
+		g.peerWatcher.PeerAdded(handle, peer)
+	}
 
 	go g.pumpPeerIncoming(handle, peer)
 	return
@@ -158,6 +179,9 @@ func (g *gossiper) RemovePeer(handle PeerHandle) {
 			log.Printf("error closing peer %s: %s", peer, err)
 		}
 		delete(g.peers, handle)
+		if g.peerWatcher != nil {
+			g.peerWatcher.PeerRemoved(handle, peer)
+		}
 		if c, ok := g.peerClosedChans[handle]; ok {
 			c <- true
 			delete(g.peerClosedChans, handle)

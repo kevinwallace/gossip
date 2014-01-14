@@ -109,7 +109,7 @@ func makeNode(name string) *testNode {
 		seen:              make(map[interface{}]bool),
 		notificationChans: make(map[interface{}]chan<- bool),
 	}
-	node.gossiper = NewGossiper(node.update)
+	node.gossiper = NewGossiper(node.update, Config{})
 	return node
 }
 
@@ -265,4 +265,46 @@ func BenchmarkHugeSparselyConnectedNetwork(b *testing.B) {
 	nodes := makeNetwork(r, 10000, 1, 2)
 	benchmarkPropagation(b, nodes)
 	tearDown(nodes)
+}
+
+type testPeerWatcher map[PeerHandle]Peer
+
+func (pw testPeerWatcher) PeerAdded(handle PeerHandle, peer Peer) {
+	pw[handle] = peer
+}
+
+func (pw testPeerWatcher) PeerRemoved(handle PeerHandle, peer Peer) {
+	delete(pw, handle)
+}
+
+func (pw testPeerWatcher) Contains(handle PeerHandle) bool {
+	_, ok := pw[handle]
+	return ok
+}
+
+func TestPeerWatcherNotified(t *testing.T) {
+	defer checkForGoroutineLeaks(runtime.NumGoroutine())
+	pw := testPeerWatcher{}
+	config := Config{
+		PeerWatcher: pw,
+	}
+	peer, _ := makePeerPipe("a", "b")
+	gossiper := NewGossiper(func(_ interface{}) bool { return true }, config)
+
+	if len(pw) != 0 {
+		t.Errorf("pw non-empty before adding any peers: %v", pw)
+	}
+
+	handle, err := gossiper.AddPeer(peer)
+	if err != nil {
+		t.Fatalf("unable to add peer: %s", err)
+	}
+	if !pw.Contains(handle) {
+		t.Errorf("pw doesn't contain peer after adding: %v", pw)
+	}
+	gossiper.RemovePeer(handle)
+	if pw.Contains(handle) {
+		t.Errorf("pw contains peer after removing: %v", pw)
+	}
+	gossiper.Close()
 }
