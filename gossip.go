@@ -147,7 +147,7 @@ func (g *gossiper) pumpOutgoing() {
 
 func (g *gossiper) pumpIncoming(updateFunc func(interface{}) bool) {
 	for incomingMessage := range g.incomingMessages {
-		if updateFunc(incomingMessage.message) {
+		if updateFunc(incomingMessage.message) || incomingMessage.peerHandle == selfHandle {
 			g.outgoingMessages <- outgoingMessage{
 				message:      incomingMessage.message,
 				excludePeers: map[PeerHandle]bool{incomingMessage.peerHandle: true},
