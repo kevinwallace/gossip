@@ -13,8 +13,6 @@ var ErrClosed = errors.New("shutting down")
 
 // Peer is the interface to a remote peer.
 type Peer interface {
-	// Unique, human-readable name for this peer.
-	Name() string
 	// Read a message from this peer.
 	// Return io.EOF if the connection was cleanly closed.
 	Read() (interface{}, error)
@@ -117,7 +115,7 @@ func (g *gossiper) pumpOutgoing() {
 			err := peer.Write(outgoingMessage.message)
 			if err != nil {
 				if err != io.EOF {
-					log.Printf("error writing message to peer %s: %s", peer.Name(), err)
+					log.Printf("error writing message to peer %s: %s", peer, err)
 				}
 				g.RemovePeer(handle)
 			}
@@ -143,7 +141,7 @@ func (g *gossiper) pumpPeerIncoming(handle PeerHandle, peer Peer) {
 		message, err := peer.Read()
 		if err != nil {
 			if err != io.EOF {
-				log.Printf("error reading from peer %s; disconnecting: %s", peer.Name(), err)
+				log.Printf("error reading from peer %s; disconnecting: %s", peer, err)
 			}
 			break
 		}
@@ -157,7 +155,7 @@ func (g *gossiper) RemovePeer(handle PeerHandle) {
 	defer g.mu.Unlock()
 	if peer, ok := g.peers[handle]; ok {
 		if err := peer.Close(); err != nil {
-			log.Printf("error closing peer %s: %s", peer.Name(), err)
+			log.Printf("error closing peer %s: %s", peer, err)
 		}
 		delete(g.peers, handle)
 		if c, ok := g.peerClosedChans[handle]; ok {
@@ -182,7 +180,7 @@ func (g *gossiper) Close() {
 	for handle, peer := range g.peers {
 		g.peerClosedChans[handle] = c
 		if err := peer.Close(); err != nil {
-			log.Printf("error closing peer %s: %s", peer.Name(), err)
+			log.Printf("error closing peer %s: %s", peer, err)
 		}
 	}
 	g.mu.Unlock()

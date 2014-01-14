@@ -19,7 +19,7 @@ type pipePeer struct {
 	outgoing chan interface{}
 }
 
-func (p pipePeer) Name() string { return p.name }
+func (p pipePeer) String() string { return p.name }
 
 func (p pipePeer) Read() (interface{}, error) {
 	select {
