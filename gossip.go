@@ -11,6 +11,23 @@ import (
 // ErrClosed is returned from operations that cannot be completed because the Gossiper is closed.
 var ErrClosed = errors.New("shutting down")
 
+// Gossiper is a single local node in the gossip protocol.
+type Gossiper interface {
+	// Broadcast broadcasts the given message to all connected peers.
+	// The gossiper's updateFunc will be called with this message before it is broadcast,
+	// but it will be broadcast even if updateFunc returns false.
+	Broadcast(message interface{})
+	// AddPeer adds the given peer to the set of connected peers.
+	AddPeer(peer Peer) (PeerHandle, error)
+	// RemovePeer attempts to close the given peer, and removes it from the set of connected peers.
+	RemovePeer(handle PeerHandle)
+	// AddPeerWatcher adds the given PeerWatcher to the list of PeerWatchers to
+	// notify upon changes to the set of connected peers.
+	AddPeerWatcher(PeerWatcher)
+	// Close shuts down the gossiper, and closes any connected peers.
+	Close()
+}
+
 // Peer is the interface to a remote peer.
 type Peer interface {
 	// Read a message from this peer.
@@ -24,14 +41,6 @@ type Peer interface {
 	Close() error
 }
 
-// Gossiper is a single local node in the gossip protocol.
-type Gossiper interface {
-	Broadcast(message interface{})
-	AddPeer(peer Peer) (PeerHandle, error)
-	RemovePeer(handle PeerHandle)
-	Close()
-}
-
 // PeerWatcher is an interface implemented by clients who want to know when to the peer set changes.
 // Callbacks are called while holding a gossiper-internal lock, and must not call back into Gossiper.
 type PeerWatcher interface {
@@ -39,12 +48,6 @@ type PeerWatcher interface {
 	PeerAdded(handle PeerHandle, peer Peer)
 	// PeerRemoved is called when a peer is removed.
 	PeerRemoved(handle PeerHandle, peer Peer)
-}
-
-// Config is used to configure a Gossiper.
-type Config struct {
-	// PeerWatcher receives updates to the current peer set, if non-nil.
-	PeerWatcher PeerWatcher
 }
 
 // PeerHandle is an opaque handle that references a peer we are gossiping with.
@@ -69,7 +72,7 @@ type outgoingMessage struct {
 type gossiper struct {
 	incomingMessages chan incomingMessage
 	outgoingMessages chan outgoingMessage
-	peerWatcher      PeerWatcher
+	peerWatchers     []PeerWatcher
 
 	mu             sync.Mutex
 	nextPeerHandle PeerHandle
@@ -84,11 +87,11 @@ type gossiper struct {
 // Each incoming message is passed to updateFunc.
 // If it returns true, the message is propagated to our other neighbors.  Otherwise, it is dropped.
 // Calls to updateFunc are synchronized.
-func NewGossiper(updateFunc func(interface{}) bool, config Config) Gossiper {
+func NewGossiper(updateFunc func(interface{}) bool) Gossiper {
 	g := &gossiper{
 		incomingMessages: make(chan incomingMessage, 1000),
 		outgoingMessages: make(chan outgoingMessage, 1000),
-		peerWatcher:      config.PeerWatcher,
+		peerWatchers:     nil,
 		nextPeerHandle:   peerHandleStart,
 		peers:            make(map[PeerHandle]Peer),
 		peerClosedChans:  make(map[PeerHandle]chan<- bool),
@@ -112,8 +115,8 @@ func (g *gossiper) AddPeer(peer Peer) (handle PeerHandle, err error) {
 	g.nextPeerHandle++
 	g.peers[handle] = peer
 
-	if g.peerWatcher != nil {
-		g.peerWatcher.PeerAdded(handle, peer)
+	for _, peerWatcher := range g.peerWatchers {
+		peerWatcher.PeerAdded(handle, peer)
 	}
 
 	go g.pumpPeerIncoming(handle, peer)
@@ -179,8 +182,8 @@ func (g *gossiper) RemovePeer(handle PeerHandle) {
 			log.Printf("error closing peer %s: %s", peer, err)
 		}
 		delete(g.peers, handle)
-		if g.peerWatcher != nil {
-			g.peerWatcher.PeerRemoved(handle, peer)
+		for _, peerWatcher := range g.peerWatchers {
+			peerWatcher.PeerRemoved(handle, peer)
 		}
 		if c, ok := g.peerClosedChans[handle]; ok {
 			c <- true
@@ -194,6 +197,12 @@ func (g *gossiper) Broadcast(message interface{}) {
 		message:    message,
 		peerHandle: selfHandle,
 	}
+}
+
+func (g *gossiper) AddPeerWatcher(peerWatcher PeerWatcher) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.peerWatchers = append(g.peerWatchers, peerWatcher)
 }
 
 func (g *gossiper) Close() {

@@ -109,7 +109,7 @@ func makeNode(name string) *testNode {
 		seen:              make(map[interface{}]bool),
 		notificationChans: make(map[interface{}]chan<- bool),
 	}
-	node.gossiper = NewGossiper(node.update, Config{})
+	node.gossiper = NewGossiper(node.update)
 	return node
 }
 
@@ -285,11 +285,9 @@ func (pw testPeerWatcher) Contains(handle PeerHandle) bool {
 func TestPeerWatcherNotified(t *testing.T) {
 	defer checkForGoroutineLeaks(runtime.NumGoroutine())
 	pw := testPeerWatcher{}
-	config := Config{
-		PeerWatcher: pw,
-	}
 	peer, _ := makePeerPipe("a", "b")
-	gossiper := NewGossiper(func(_ interface{}) bool { return true }, config)
+	gossiper := NewGossiper(func(_ interface{}) bool { return true })
+	gossiper.AddPeerWatcher(pw)
 
 	if len(pw) != 0 {
 		t.Errorf("pw non-empty before adding any peers: %v", pw)
