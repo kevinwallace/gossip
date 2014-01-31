@@ -160,6 +160,19 @@ func (g *gossiper) pumpIncoming(updateFunc func(interface{}) bool) {
 	close(g.outgoingMessages)
 }
 
+// pumpPeerSingleIncoming sends a single message on incomingMessages,
+// unless the gossiper is currently shutting down.
+// It returns true if the message was sent.
+func (g *gossiper) pumpPeerSingleIncoming(msg incomingMessage) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.closing {
+		return false
+	}
+	g.incomingMessages <- msg
+	return true
+}
+
 func (g *gossiper) pumpPeerIncoming(handle PeerHandle, peer Peer) {
 	for {
 		message, err := peer.Read()
@@ -169,7 +182,10 @@ func (g *gossiper) pumpPeerIncoming(handle PeerHandle, peer Peer) {
 			}
 			break
 		}
-		g.incomingMessages <- incomingMessage{message, handle}
+		msg := incomingMessage{message, handle}
+		if !g.pumpPeerSingleIncoming(msg) {
+			break
+		}
 	}
 	g.RemovePeer(handle)
 }
