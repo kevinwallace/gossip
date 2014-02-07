@@ -172,7 +172,7 @@ func testPropagation(t *testing.T, nodes []*testNode) {
 		node.gossiper.Broadcast(node.name)
 	}
 	for _, node := range nodes {
-		t.Logf("Awaiting %s", node.name)
+		// t.Logf("Awaiting %s", node.name)
 		for _, node2 := range nodes {
 			node.Await(node2.name)
 		}
@@ -182,7 +182,7 @@ func testPropagation(t *testing.T, nodes []*testNode) {
 func benchmarkPropagation(b *testing.B, nodes []*testNode) {
 	nodes[0].gossiper.Broadcast("foo")
 	for _, node := range nodes {
-		b.Logf("Awaiting %s", node.name)
+		// b.Logf("Awaiting %s", node.name)
 		node.Await("foo")
 	}
 }
@@ -193,13 +193,17 @@ func tearDown(nodes []*testNode) {
 	}
 }
 
-func checkForGoroutineLeaks(startingGoroutines int) {
+func checkForGoroutineLeaks(tb testing.TB, startingGoroutines int) {
 	// TODO this is gross; do something more precise along the lines of
 	// https://codereview.appspot.com/7777043/diff/22001/src/pkg/net/http/z_last_test.go?context=10&column_width=80
 	start := time.Now()
 	deadline := start.Add(5 * time.Second)
+	var stackBuf []byte
 	var goroutines int
 	for time.Now().Before(deadline) {
+		stackBuf = make([]byte, 10240)
+		n := runtime.Stack(stackBuf, true)
+		stackBuf = stackBuf[:n]
 		goroutines = runtime.NumGoroutine()
 		// go test seems to spawn one goroutine during our test, so let a single extra goroutine slide.
 		if goroutines <= startingGoroutines+1 {
@@ -208,11 +212,11 @@ func checkForGoroutineLeaks(startingGoroutines int) {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	log.Fatalf("Have %d goroutines after tearing down, was %d before setup", goroutines, startingGoroutines)
+	tb.Errorf("Have %d goroutines after tearing down, was %d before setup:\n%s", goroutines, startingGoroutines, string(stackBuf))
 }
 
 func TestPropagationSmallFullyConnectedNetwork(t *testing.T) {
-	defer checkForGoroutineLeaks(runtime.NumGoroutine())
+	defer checkForGoroutineLeaks(t, runtime.NumGoroutine())
 	r := rand.New(rand.NewSource(1))
 	nodes := makeNetwork(r, 10, 9, 9)
 	testPropagation(t, nodes)
@@ -220,7 +224,7 @@ func TestPropagationSmallFullyConnectedNetwork(t *testing.T) {
 }
 
 func TestPropagationLargeSparselyConnectedNetwork(t *testing.T) {
-	defer checkForGoroutineLeaks(runtime.NumGoroutine())
+	defer checkForGoroutineLeaks(t, runtime.NumGoroutine())
 	r := rand.New(rand.NewSource(1))
 	nodes := makeNetwork(r, 500, 1, 2)
 	testPropagation(t, nodes)
@@ -228,7 +232,7 @@ func TestPropagationLargeSparselyConnectedNetwork(t *testing.T) {
 }
 
 func TestPropagationMediumWellConnectedNetwork(t *testing.T) {
-	defer checkForGoroutineLeaks(runtime.NumGoroutine())
+	defer checkForGoroutineLeaks(t, runtime.NumGoroutine())
 	r := rand.New(rand.NewSource(1))
 	nodes := makeNetwork(r, 200, 8, 10)
 	testPropagation(t, nodes)
@@ -236,7 +240,7 @@ func TestPropagationMediumWellConnectedNetwork(t *testing.T) {
 }
 
 func BenchmarkSmallFullyConnectedNetwork(b *testing.B) {
-	defer checkForGoroutineLeaks(runtime.NumGoroutine())
+	defer checkForGoroutineLeaks(b, runtime.NumGoroutine())
 	r := rand.New(rand.NewSource(1))
 	nodes := makeNetwork(r, 10, 9, 10)
 	benchmarkPropagation(b, nodes)
@@ -244,7 +248,7 @@ func BenchmarkSmallFullyConnectedNetwork(b *testing.B) {
 }
 
 func BenchmarkLargeSparselyConnectedNetwork(b *testing.B) {
-	defer checkForGoroutineLeaks(runtime.NumGoroutine())
+	defer checkForGoroutineLeaks(b, runtime.NumGoroutine())
 	r := rand.New(rand.NewSource(1))
 	nodes := makeNetwork(r, 500, 1, 2)
 	benchmarkPropagation(b, nodes)
@@ -252,7 +256,7 @@ func BenchmarkLargeSparselyConnectedNetwork(b *testing.B) {
 }
 
 func BenchmarkLargeWellConnectedNetwork(b *testing.B) {
-	defer checkForGoroutineLeaks(runtime.NumGoroutine())
+	defer checkForGoroutineLeaks(b, runtime.NumGoroutine())
 	r := rand.New(rand.NewSource(1))
 	nodes := makeNetwork(r, 500, 8, 10)
 	benchmarkPropagation(b, nodes)
@@ -260,7 +264,7 @@ func BenchmarkLargeWellConnectedNetwork(b *testing.B) {
 }
 
 func BenchmarkHugeSparselyConnectedNetwork(b *testing.B) {
-	defer checkForGoroutineLeaks(runtime.NumGoroutine())
+	defer checkForGoroutineLeaks(b, runtime.NumGoroutine())
 	r := rand.New(rand.NewSource(1))
 	nodes := makeNetwork(r, 10000, 1, 2)
 	benchmarkPropagation(b, nodes)
@@ -283,10 +287,10 @@ func (pw testPeerWatcher) Contains(handle PeerHandle) bool {
 }
 
 func TestPeerWatcherNotified(t *testing.T) {
-	defer checkForGoroutineLeaks(runtime.NumGoroutine())
+	defer checkForGoroutineLeaks(t, runtime.NumGoroutine())
 	pw := testPeerWatcher{}
 	peer, _ := makePeerPipe("a", "b")
-	gossiper := NewGossiper(func(_ interface{}) bool { return true })
+	gossiper := NewGossiper(func(interface{}) bool { return true })
 	gossiper.AddPeerWatcher(pw)
 
 	if len(pw) != 0 {

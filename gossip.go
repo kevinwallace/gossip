@@ -21,9 +21,12 @@ type Gossiper interface {
 	AddPeer(peer Peer) (PeerHandle, error)
 	// RemovePeer attempts to close the given peer, and removes it from the set of connected peers.
 	RemovePeer(handle PeerHandle)
-	// AddPeerWatcher adds the given PeerWatcher to the list of PeerWatchers to
+	// AddPeerWatcher adds the given PeerWatcher to the set of PeerWatchers to
 	// notify upon changes to the set of connected peers.
-	AddPeerWatcher(PeerWatcher)
+	AddPeerWatcher(PeerWatcher) PeerWatcherHandle
+	// RemovePeerWatcher removes the given PeerWatcher from the set of
+	// PeerWatchers to notify upon changes to the set of connected peers.
+	RemovePeerWatcher(PeerWatcherHandle)
 	// Close shuts down the gossiper, and closes any connected peers.
 	Close()
 }
@@ -53,6 +56,9 @@ type PeerWatcher interface {
 // PeerHandle is an opaque handle that references a peer we are gossiping with.
 type PeerHandle uint
 
+// PeerWatcherHandle is an opaque handle that references a peer we are gossiping with.
+type PeerWatcherHandle uint
+
 // selfHandle refers to the local node.
 const selfHandle PeerHandle = 0
 
@@ -72,9 +78,13 @@ type outgoingMessage struct {
 type gossiper struct {
 	incomingMessages chan incomingMessage
 	outgoingMessages chan outgoingMessage
-	peerWatchers     []PeerWatcher
 
-	mu             sync.Mutex
+	// mu covers the remaining fields.
+	mu sync.Mutex
+
+	nextPeerWatcherHandle PeerWatcherHandle
+	peerWatchers          map[PeerWatcherHandle]PeerWatcher
+
 	nextPeerHandle PeerHandle
 	peers          map[PeerHandle]Peer
 
@@ -89,13 +99,14 @@ type gossiper struct {
 // Calls to updateFunc are synchronized.
 func NewGossiper(updateFunc func(interface{}) bool) Gossiper {
 	g := &gossiper{
-		incomingMessages: make(chan incomingMessage, 1000),
-		outgoingMessages: make(chan outgoingMessage, 1000),
-		peerWatchers:     nil,
-		nextPeerHandle:   peerHandleStart,
-		peers:            make(map[PeerHandle]Peer),
-		peerClosedChans:  make(map[PeerHandle]chan<- bool),
-		closed:           make(chan bool),
+		incomingMessages:      make(chan incomingMessage, 1000),
+		outgoingMessages:      make(chan outgoingMessage, 1000),
+		nextPeerWatcherHandle: 1,
+		peerWatchers:          make(map[PeerWatcherHandle]PeerWatcher),
+		nextPeerHandle:        peerHandleStart,
+		peers:                 make(map[PeerHandle]Peer),
+		peerClosedChans:       make(map[PeerHandle]chan<- bool),
+		closed:                make(chan bool),
 	}
 	go g.pumpIncoming(updateFunc)
 	go g.pumpOutgoing()
@@ -215,10 +226,22 @@ func (g *gossiper) Broadcast(message interface{}) {
 	}
 }
 
-func (g *gossiper) AddPeerWatcher(peerWatcher PeerWatcher) {
+func (g *gossiper) AddPeerWatcher(peerWatcher PeerWatcher) PeerWatcherHandle {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.peerWatchers = append(g.peerWatchers, peerWatcher)
+	handle := g.nextPeerWatcherHandle
+	g.nextPeerWatcherHandle++
+	g.peerWatchers[handle] = peerWatcher
+	for handle, peer := range g.peers {
+		peerWatcher.PeerAdded(handle, peer)
+	}
+	return handle
+}
+
+func (g *gossiper) RemovePeerWatcher(handle PeerWatcherHandle) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	delete(g.peerWatchers, handle)
 }
 
 func (g *gossiper) Close() {
