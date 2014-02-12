@@ -53,7 +53,7 @@ func connect(addrs []string, peerManager gossip.PeerManager) {
 
 // readLines loops, reading each line from stdin and broadcasting it as a chat message.
 // It returns on EOF.
-func readlines(c *Chat) {
+func readLines(c *Chat) {
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		c.SendChat(scanner.Text())
@@ -85,5 +85,5 @@ func main() {
 
 	go listen(fmt.Sprintf(":%d", *port), peerManager)
 	connect(flag.Args(), peerManager)
-	readlines(c)
+	readLines(c)
 }

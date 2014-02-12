@@ -4,7 +4,7 @@ package main
 type sequencer uint
 
 // sequenceTracker tracks a potentially out-of-order stream of sequencers,
-// expecting to see at least value at least once.
+// expecting to see each value at least once.
 type sequenceTracker struct {
 	horizon sequencer
 	seen    map[sequencer]bool
