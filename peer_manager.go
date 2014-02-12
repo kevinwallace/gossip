@@ -1,6 +1,7 @@
 package gossip
 
 import (
+	"errors"
 	"log"
 	"math/rand"
 	"sync"
@@ -10,6 +11,10 @@ import (
 // DefaultRetryDelay is the default duration to wait before retrying failed operations.
 // See PeerManagerConfig's RetryDelay.
 const DefaultRetryDelay = 5 * time.Second
+
+// ErrNoPeers can be returned by the NewPeer callback in order to indicate that
+// the application doesn't know about any additional peers.
+var ErrNoPeers = errors.New("no peers known")
 
 // PeerManager is responsible for managing the set of currently-connected peers.
 type PeerManager interface {
@@ -156,7 +161,9 @@ func (pm *peerManager) findPeerToAdd(currentPeers map[PeerHandle]Peer) {
 	}
 	peer, err := pm.newPeer(currentPeers)
 	if err != nil {
-		log.Printf("Error finding a new peer to add. Retrying in %s. err: %s", pm.retryDelay, err)
+		if err != ErrNoPeers {
+			log.Printf("Error finding a new peer to add. Retrying in %s. err: %s", pm.retryDelay, err)
+		}
 		pm.notifyAfter(pm.retryDelay)
 		return
 	}
