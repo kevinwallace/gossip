@@ -75,6 +75,7 @@ func main() {
 
 	c := NewChat(key, *port)
 	c.gossiper = gossip.NewGossiper(c.handleGossip)
+	defer c.gossiper.Close()
 
 	peerManager := gossip.NewPeerManager(c.gossiper, gossip.PeerManagerConfig{
 		NewPeer:   c.findPeer,
