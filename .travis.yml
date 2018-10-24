@@ -6,7 +6,7 @@ go:
 
 before_install:
   - go get -v code.google.com/p/go.tools/cmd/cover
-  - go get -v github.com/golang/lint/golint
+  - go get -v golang.org/x/lint/golint
   - env | sort
 
 script:
